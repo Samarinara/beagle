@@ -3,7 +3,7 @@
 import { useState, useCallback } from "react"
 import {
   Loader2, BarChart3, AlertTriangle, Sparkles, Settings2, Eye, EyeOff,
-  ChevronDown, ChevronRight, Cpu,
+  ChevronDown, ChevronRight, Cpu, Download,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -18,6 +18,14 @@ import {
 import type { FinancialMetric, Company, Filing, LLMConfig } from "@/lib/types"
 
 const LLM_CONFIG_KEY = "beagle:llm-config"
+const METRICS_CACHE_KEY = "beagle:metrics-cache"
+const CACHE_TTL = 60 * 60 * 1000
+
+interface CacheEntry {
+  metrics: FinancialMetric[]
+  estimatedTokens?: number
+  timestamp: number
+}
 
 function loadLLMConfig(): LLMConfig {
   if (typeof window === "undefined") return { apiKey: "", model: "" }
@@ -30,6 +38,48 @@ function loadLLMConfig(): LLMConfig {
 
 function saveLLMConfig(config: LLMConfig) {
   localStorage.setItem(LLM_CONFIG_KEY, JSON.stringify(config))
+}
+
+function cacheKey(cik: number, accNo: string, mode: string, model?: string): string {
+  const suffix = mode === "ai" && model ? `-${model}` : ""
+  return `${cik}-${accNo}-${mode}${suffix}`
+}
+
+function loadCache(): Record<string, CacheEntry> {
+  try {
+    const raw = localStorage.getItem(METRICS_CACHE_KEY)
+    if (raw) return JSON.parse(raw)
+  } catch { /* ignore */ }
+  return {}
+}
+
+function saveCache(data: Record<string, CacheEntry>) {
+  try {
+    localStorage.setItem(METRICS_CACHE_KEY, JSON.stringify(data))
+  } catch {
+    // localStorage full — prune oldest entries
+    const entries = Object.entries(data)
+      .sort((a, b) => a[1].timestamp - b[1].timestamp)
+      .slice(-10)
+    const pruned = Object.fromEntries(entries)
+    try {
+      localStorage.setItem(METRICS_CACHE_KEY, JSON.stringify(pruned))
+    } catch { /* give up */ }
+  }
+}
+
+function getCachedMetrics(cik: number, accNo: string, mode: string, model?: string): { metrics: FinancialMetric[]; estimatedTokens?: number } | null {
+  const cache = loadCache()
+  const entry = cache[cacheKey(cik, accNo, mode, model)]
+  if (!entry) return null
+  if (Date.now() - entry.timestamp > CACHE_TTL) return null
+  return { metrics: entry.metrics, estimatedTokens: entry.estimatedTokens }
+}
+
+function setCachedMetrics(cik: number, accNo: string, mode: string, metrics: FinancialMetric[], estimatedTokens?: number, model?: string) {
+  const cache = loadCache()
+  cache[cacheKey(cik, accNo, mode, model)] = { metrics, estimatedTokens, timestamp: Date.now() }
+  saveCache(cache)
 }
 
 interface MetricsDialogProps {
@@ -138,6 +188,29 @@ function getMetricIcon(label: string): string {
   return icons[label] || "\u{1F4CB}"
 }
 
+function metricsToCSV(metrics: FinancialMetric[]): string {
+  const header = "Label,Value,Unit,Scale,Period,Statement"
+  const rows = metrics.map((m) => {
+    const label = `"${m.label.replace(/"/g, '""')}"`
+    return `${label},${m.value ?? ""},${m.unit},${m.scale},${m.period},${m.statement}`
+  })
+  return [header, ...rows].join("\n")
+}
+
+function downloadBlob(content: string, filename: string, mime: string) {
+  const blob = new Blob([content], { type: mime })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement("a")
+  a.href = url
+  a.download = filename
+  a.click()
+  URL.revokeObjectURL(url)
+}
+
+async function copyToClipboard(text: string) {
+  await navigator.clipboard.writeText(text)
+}
+
 function formatTokenCount(tokens: number): string {
   if (tokens >= 1_000_000) return `${(tokens / 1_000_000).toFixed(1)}M`
   if (tokens >= 1_000) return `${(tokens / 1_000).toFixed(0)}K`
@@ -182,44 +255,62 @@ export function MetricsDialog({ company, filing }: MetricsDialogProps) {
   const [showAiConfig, setShowAiConfig] = useState(false)
   const [estimatedTokens, setEstimatedTokens] = useState<number | null>(null)
   const [checkingSize, setCheckingSize] = useState(false)
+  const [exportOpen, setExportOpen] = useState(false)
+  const [copyFeedback, setCopyFeedback] = useState<string | null>(null)
+  const [fromCache, setFromCache] = useState(false)
+
+  const fetchStandardMetrics = useCallback(() => {
+    setLoading(true)
+    setError(null)
+    setMetrics([])
+
+    const cached = getCachedMetrics(company.cik, filing.accessionNumber, "standard")
+    if (cached) {
+      setMetrics(cached.metrics)
+      setFromCache(true)
+      setLoading(false)
+      return
+    }
+
+    const params = new URLSearchParams({
+      accessionNumber: filing.accessionNumber,
+      primaryDocument: filing.primaryDocument,
+      form: filing.form,
+    })
+
+    fetch(`/api/metrics/${company.cik}?${params}`)
+      .then(async (res) => {
+        if (!res.ok) {
+          const data = await res.json().catch(() => ({}))
+          throw new Error(data.error || `Failed to load metrics (${res.status})`)
+        }
+        return res.json()
+      })
+      .then((data) => {
+        const m = data.metrics || []
+        setMetrics(m)
+        setFromCache(false)
+        setCachedMetrics(company.cik, filing.accessionNumber, "standard", m)
+      })
+      .catch((err) => {
+        setError(err instanceof Error ? err.message : "Failed to extract metrics")
+      })
+      .finally(() => {
+        setLoading(false)
+      })
+  }, [company.cik, filing.accessionNumber, filing.primaryDocument, filing.form])
 
   const handleOpenChange = useCallback(
     (newOpen: boolean) => {
       setOpen(newOpen)
       if (newOpen) {
-        setLoading(true)
-        setError(null)
-        setMetrics([])
         setEstimatedTokens(null)
         setMode("standard")
         setLlmConfig(loadLLMConfig())
-
-        const params = new URLSearchParams({
-          accessionNumber: filing.accessionNumber,
-          primaryDocument: filing.primaryDocument,
-          form: filing.form,
-        })
-
-        fetch(`/api/metrics/${company.cik}?${params}`)
-          .then(async (res) => {
-            if (!res.ok) {
-              const data = await res.json().catch(() => ({}))
-              throw new Error(data.error || `Failed to load metrics (${res.status})`)
-            }
-            return res.json()
-          })
-          .then((data) => {
-            setMetrics(data.metrics || [])
-          })
-          .catch((err) => {
-            setError(err instanceof Error ? err.message : "Failed to extract metrics")
-          })
-          .finally(() => {
-            setLoading(false)
-          })
+        fetchStandardMetrics()
       }
     },
-    [company.cik, filing.accessionNumber, filing.primaryDocument, filing.form],
+    [fetchStandardMetrics],
   )
 
   const handleCheckSize = useCallback(async () => {
@@ -252,6 +343,15 @@ export function MetricsDialog({ company, filing }: MetricsDialogProps) {
     setMode("ai")
     saveLLMConfig(llmConfig)
 
+    const cached = getCachedMetrics(company.cik, filing.accessionNumber, "ai", llmConfig.model)
+    if (cached) {
+      setMetrics(cached.metrics)
+      setEstimatedTokens(cached.estimatedTokens ?? null)
+      setFromCache(true)
+      setLoading(false)
+      return
+    }
+
     try {
       const params = new URLSearchParams({
         accessionNumber: filing.accessionNumber,
@@ -268,8 +368,11 @@ export function MetricsDialog({ company, filing }: MetricsDialogProps) {
         throw new Error(data.error || `AI extraction failed (${res.status})`)
       }
       const data = await res.json()
-      setMetrics(data.metrics || [])
+      const m = data.metrics || []
+      setMetrics(m)
       setEstimatedTokens(data.estimatedTokens || null)
+      setFromCache(false)
+      setCachedMetrics(company.cik, filing.accessionNumber, "ai", m, data.estimatedTokens || undefined, llmConfig.model)
     } catch (err) {
       setError(err instanceof Error ? err.message : "AI extraction failed")
     } finally {
@@ -278,6 +381,25 @@ export function MetricsDialog({ company, filing }: MetricsDialogProps) {
   }, [company.cik, filing.accessionNumber, filing.primaryDocument, filing.form, llmConfig])
 
   const contextWindow = getModelContextWindow(llmConfig.model)
+
+  const handleExport = useCallback((format: "csv" | "json", action: "download" | "copy") => {
+    setExportOpen(false)
+    const content = format === "csv" ? metricsToCSV(metrics) : JSON.stringify(metrics, null, 2)
+    const ext = format === "csv" ? "csv" : "json"
+    const mime = format === "csv" ? "text/csv" : "application/json"
+
+    if (action === "download") {
+      const ticker = company.ticker || `cik-${company.cik}`
+      const acc = filing.accessionNumber.replace(/-/g, "").slice(0, 10)
+      downloadBlob(content, `${ticker}-${acc}-metrics.${ext}`, mime)
+      return
+    }
+
+    copyToClipboard(content).then(() => {
+      setCopyFeedback(format === "csv" ? "CSV copied" : "JSON copied")
+      setTimeout(() => setCopyFeedback(null), 2000)
+    })
+  }, [company, filing.accessionNumber, metrics])
 
   const grouped = metrics.reduce(
     (acc, m) => {
@@ -430,25 +552,7 @@ export function MetricsDialog({ company, filing }: MetricsDialogProps) {
               onClick={() => {
                 if (mode !== "standard") {
                   setMode("standard")
-                  setLoading(true)
-                  setError(null)
-                  setMetrics([])
-                  const params = new URLSearchParams({
-                    accessionNumber: filing.accessionNumber,
-                    primaryDocument: filing.primaryDocument,
-                    form: filing.form,
-                  })
-                  fetch(`/api/metrics/${company.cik}?${params}`)
-                    .then(async (res) => {
-                      if (!res.ok) {
-                        const data = await res.json().catch(() => ({}))
-                        throw new Error(data.error || `Failed to load metrics (${res.status})`)
-                      }
-                      return res.json()
-                    })
-                    .then((data) => setMetrics(data.metrics || []))
-                    .catch((err) => setError(err instanceof Error ? err.message : "Failed to extract metrics"))
-                    .finally(() => setLoading(false))
+                  fetchStandardMetrics()
                 }
               }}
               className={`rounded-none px-3 py-1.5 text-xs font-medium transition-colors ${
@@ -463,7 +567,16 @@ export function MetricsDialog({ company, filing }: MetricsDialogProps) {
               type="button"
               onClick={() => {
                 if (mode !== "ai" && llmConfig.apiKey && !loading) {
-                  handleAiExtract()
+                  const cached = getCachedMetrics(company.cik, filing.accessionNumber, "ai", llmConfig.model)
+                  if (cached) {
+                    setMode("ai")
+                    setMetrics(cached.metrics)
+                    setEstimatedTokens(cached.estimatedTokens ?? null)
+                    setFromCache(true)
+                    setError(null)
+                  } else {
+                    handleAiExtract()
+                  }
                 }
               }}
               className={`rounded-none px-3 py-1.5 text-xs font-medium transition-colors ${
@@ -490,6 +603,12 @@ export function MetricsDialog({ company, filing }: MetricsDialogProps) {
                 <p className="text-sm font-medium text-destructive">Error</p>
                 <p className="mt-1 text-sm text-muted-foreground">{error}</p>
               </div>
+            </div>
+          )}
+
+          {!loading && !error && fromCache && metrics.length > 0 && (
+            <div className="mb-3 text-xs text-muted-foreground">
+              Results loaded from cache
             </div>
           )}
 
@@ -533,11 +652,70 @@ export function MetricsDialog({ company, filing }: MetricsDialogProps) {
             ))}
 
           {!loading && !error && metrics.length > 0 && (
-            <p className="pb-2 text-xs text-muted-foreground">
-              {mode === "standard"
-                ? "Values as reported. Dollar amounts in millions unless noted."
-                : `AI-extracted values (${formatTokenCount(estimatedTokens || 0)} tokens processed). Verify critical figures.`}
-            </p>
+            <div className="flex items-center justify-between pb-2">
+              <p className="text-xs text-muted-foreground">
+                {mode === "standard"
+                  ? "Values as reported. Dollar amounts in millions unless noted."
+                  : `AI-extracted values (${formatTokenCount(estimatedTokens || 0)} tokens processed). Verify critical figures.`}
+              </p>
+              <div className="relative">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setExportOpen(!exportOpen)}
+                  className="h-7 text-xs"
+                >
+                  <Download className="mr-1 size-3" />
+                  Export
+                </Button>
+
+                {exportOpen && (
+                  <>
+                    <div
+                      className="fixed inset-0 z-40"
+                      onClick={() => setExportOpen(false)}
+                    />
+                    <div className="absolute bottom-full right-0 z-50 mb-1 w-44 border border-border bg-popover shadow-sm">
+                      <button
+                        type="button"
+                        onClick={() => handleExport("csv", "download")}
+                        className="flex w-full items-center gap-2 px-3 py-2 text-left text-xs hover:bg-muted"
+                      >
+                        Download CSV (.csv)
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleExport("json", "download")}
+                        className="flex w-full items-center gap-2 px-3 py-2 text-left text-xs hover:bg-muted"
+                      >
+                        Download JSON (.json)
+                      </button>
+                      <div className="border-t border-border" />
+                      <button
+                        type="button"
+                        onClick={() => handleExport("csv", "copy")}
+                        className="flex w-full items-center gap-2 px-3 py-2 text-left text-xs hover:bg-muted"
+                      >
+                        Copy as CSV
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleExport("json", "copy")}
+                        className="flex w-full items-center gap-2 px-3 py-2 text-left text-xs hover:bg-muted"
+                      >
+                        Copy as JSON
+                      </button>
+                    </div>
+                  </>
+                )}
+
+                {copyFeedback && (
+                  <span className="absolute -top-6 right-0 text-xs text-green-600 animate-pulse">
+                    {copyFeedback}
+                  </span>
+                )}
+              </div>
+            </div>
           )}
         </div>
       </DialogContent>

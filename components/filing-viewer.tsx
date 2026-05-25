@@ -8,6 +8,7 @@ import {
   buildSecDirectUrl,
   buildSecBaseUrl,
 } from "@/lib/edgar"
+import { MetricsDialog } from "@/components/metrics-dialog"
 import type { Company, Filing } from "@/lib/types"
 
 interface FilingViewerProps {
@@ -79,6 +80,7 @@ export function FilingViewer({ company, filing, onBack }: FilingViewerProps) {
             <p className="text-xs text-muted-foreground">{company.name}</p>
           </div>
         </div>
+        <MetricsDialog company={company} filing={filing} />
         <Button variant="ghost" size="icon" asChild>
           <a href={directUrl} target="_blank" rel="noopener noreferrer">
             <ExternalLink className="size-4" />

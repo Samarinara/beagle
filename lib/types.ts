@@ -24,10 +24,17 @@ export interface FinancialMetric {
   fiscalPeriod?: string
 }
 
+export interface LLMConfig {
+  apiKey: string
+  model: string
+}
+
 export interface MetricsResponse {
   companyCik: number
   accessionNumber: string
   form: string
   period: string
   metrics: FinancialMetric[]
+  estimatedTokens?: number
+  extractionMethod?: "rule" | "llm"
 }

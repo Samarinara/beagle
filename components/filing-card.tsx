@@ -2,6 +2,8 @@
 
 import { FileText, ChevronRight } from "lucide-react"
 import { cn } from "@/lib/utils"
+import { Badge } from "@/components/ui/badge"
+import { motion } from "framer-motion"
 import type { Filing } from "@/lib/types"
 
 interface FilingCardProps {
@@ -10,39 +12,38 @@ interface FilingCardProps {
   index?: number
 }
 
-const formTypeColors: Record<string, string> = {
-  "10-K": "bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300",
-  "10-Q":
-    "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300",
-  "8-K": "bg-orange-100 text-orange-700 dark:bg-orange-900/40 dark:text-orange-300",
-}
-
-function getFormColor(form: string): string {
-  return formTypeColors[form] || "bg-muted text-muted-foreground"
+const formTypeVariants: Record<
+  string,
+  "default" | "secondary" | "outline" | "destructive"
+> = {
+  "10-K": "default",
+  "10-Q": "secondary",
+  "8-K": "outline",
 }
 
 export function FilingCard({ filing, onSelect, index = 0 }: FilingCardProps) {
   return (
-    <button
+    <motion.button
+      initial={{ opacity: 0, y: 10 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ delay: index * 0.03, duration: 0.2 }}
+      whileHover={{ backgroundColor: "var(--muted)" }}
+      whileTap={{ scale: 0.995 }}
       onClick={onSelect}
       className={cn(
-        "group flex w-full items-center gap-4 border-b border-border px-4 py-3 text-left transition-all last:border-b-0 hover:bg-muted/50",
-        "animate-in fade-in slide-in-from-bottom-1 fill-mode-both",
+        "group flex w-full items-center gap-4 border-b border-border px-4 py-3 text-left transition-colors last:border-b-0"
       )}
-      style={{ animationDelay: `${index * 40}ms` }}
     >
       <div className="flex shrink-0 items-center justify-center">
-        <FileText className="size-5 text-muted-foreground" />
+        <FileText className="size-5 text-muted-foreground transition-colors group-hover:text-foreground" />
       </div>
       <div className="flex min-w-0 flex-1 items-center gap-3">
-        <span
-          className={cn(
-            "inline-flex shrink-0 items-center rounded-none px-2 py-0.5 text-xs font-medium",
-            getFormColor(filing.form),
-          )}
+        <Badge
+          variant={formTypeVariants[filing.form] || "outline"}
+          className="shrink-0"
         >
           {filing.form}
-        </span>
+        </Badge>
         <div className="min-w-0 flex-1">
           <div className="truncate text-sm font-medium">
             {filing.description || `${filing.form} Filing`}
@@ -53,6 +54,6 @@ export function FilingCard({ filing, onSelect, index = 0 }: FilingCardProps) {
         </div>
       </div>
       <ChevronRight className="size-4 shrink-0 text-muted-foreground transition-transform group-hover:translate-x-0.5" />
-    </button>
+    </motion.button>
   )
 }

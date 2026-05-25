@@ -7,7 +7,9 @@ import { FilingViewer } from "@/components/filing-viewer"
 import { searchCompany, fetchFilings } from "@/lib/edgar"
 import { AlertTriangle, RefreshCw } from "lucide-react"
 import { Button } from "@/components/ui/button"
+import { Skeleton } from "@/components/ui/skeleton"
 import { cn } from "@/lib/utils"
+import { motion, AnimatePresence } from "framer-motion"
 import type { Company, Filing } from "@/lib/types"
 
 type ViewState =
@@ -67,7 +69,7 @@ export default function Page() {
         selectedFiling: filing,
       })
     },
-    [state],
+    [state]
   )
 
   const handleBack = useCallback(() => {
@@ -98,112 +100,157 @@ export default function Page() {
     <div
       className={cn(
         "flex flex-col",
-        isViewing ? "h-dvh overflow-hidden" : "min-h-svh",
+        isViewing ? "h-dvh overflow-hidden" : "min-h-svh"
       )}
     >
-      <div
+      <motion.div
+        layout
         className={cn(
           "mx-auto flex w-full flex-col",
           isViewing
-            ? "min-h-0 flex-1 px-6 pb-3 pt-2"
-            : "px-6 pb-12 pt-[15vh] sm:pt-[20vh]",
-          isIdle ? "max-w-xl items-center justify-center pt-0" : "max-w-3xl",
+            ? "min-h-0 flex-1 px-6 pt-2 pb-3"
+            : "px-6 pt-[15vh] pb-12 sm:pt-[20vh]",
+          isIdle ? "max-w-xl items-center justify-center pt-0" : "max-w-3xl"
         )}
+        transition={{ type: "spring", bounce: 0, duration: 0.4 }}
       >
         {/* Hero / Header */}
-        <div className={cn("w-full", isIdle && "text-center")}>
+        <motion.div layout className={cn("w-full", isIdle && "text-center")}>
           {isIdle && (
-            <div className="mb-10">
+            <motion.div
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              className="mb-10"
+            >
               <h1 className="text-4xl font-bold tracking-tight">Beagle</h1>
               <p className="mt-2 text-muted-foreground">
                 EDGAR Filing Explorer
               </p>
-            </div>
+            </motion.div>
           )}
 
           {!isViewing && (
-            <SearchBar
-              onSearch={handleSearch}
-              loading={isSearching}
-              initialQuery={getInitialQuery()}
-              autoFocus={isIdle}
-            />
+            <motion.div layout>
+              <SearchBar
+                onSearch={handleSearch}
+                loading={isSearching}
+                initialQuery={getInitialQuery()}
+                autoFocus={isIdle}
+              />
+            </motion.div>
           )}
-        </div>
+        </motion.div>
 
-        {/* Skeleton loading */}
-        {isSearching && <SkeletonList />}
+        <AnimatePresence mode="wait">
+          {/* Skeleton loading */}
+          {isSearching && (
+            <motion.div
+              key="searching"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="w-full"
+            >
+              <SkeletonList />
+            </motion.div>
+          )}
 
-        {/* Error */}
-        {state.type === "error" && (
-          <div className="mt-6 animate-in fade-in slide-in-from-top-2">
-            <div className="rounded-none border border-destructive/50 bg-destructive/10 p-4">
-              <div className="flex items-start gap-3">
-                <AlertTriangle className="mt-0.5 size-5 shrink-0 text-destructive" />
-                <div className="flex-1">
-                  <p className="text-sm font-medium text-destructive">Error</p>
-                  <p className="mt-1 text-sm text-muted-foreground">
-                    {state.message}
-                  </p>
+          {/* Error */}
+          {state.type === "error" && (
+            <motion.div
+              key="error"
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -10 }}
+              className="mt-6 w-full"
+            >
+              <div className="rounded-none border border-destructive/50 bg-destructive/10 p-4">
+                <div className="flex items-start gap-3">
+                  <AlertTriangle className="mt-0.5 size-5 shrink-0 text-destructive" />
+                  <div className="flex-1">
+                    <p className="text-sm font-medium text-destructive">
+                      Error
+                    </p>
+                    <p className="mt-1 text-sm text-muted-foreground">
+                      {state.message}
+                    </p>
+                  </div>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={handleRetry}
+                    className="shrink-0"
+                  >
+                    <RefreshCw className="mr-1.5 size-3" />
+                    Retry
+                  </Button>
                 </div>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={handleRetry}
-                  className="shrink-0"
-                >
-                  <RefreshCw className="mr-1.5 size-3" />
-                  Retry
-                </Button>
               </div>
-            </div>
-          </div>
-        )}
+            </motion.div>
+          )}
 
-        {/* Results */}
-        {state.type === "results" && (
-          <FilingList
-            company={state.company}
-            filings={state.filings}
-            visibleCount={state.visibleCount}
-            onLoadMore={handleLoadMore}
-            onSelectFiling={handleSelectFiling}
-            totalFilings={state.filings.length}
-          />
-        )}
+          {/* Results */}
+          {state.type === "results" && (
+            <motion.div
+              key="results"
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -10 }}
+              className="w-full"
+            >
+              <FilingList
+                company={state.company}
+                filings={state.filings}
+                visibleCount={state.visibleCount}
+                onLoadMore={handleLoadMore}
+                onSelectFiling={handleSelectFiling}
+                totalFilings={state.filings.length}
+              />
+            </motion.div>
+          )}
 
-        {/* Viewer */}
-        {state.type === "viewing" && (
-          <FilingViewer
-            company={state.company}
-            filing={state.selectedFiling}
-            onBack={handleBack}
-          />
-        )}
-      </div>
+          {/* Viewer */}
+          {state.type === "viewing" && (
+            <motion.div
+              key="viewing"
+              initial={{ opacity: 0, x: 20 }}
+              animate={{ opacity: 1, x: 0 }}
+              exit={{ opacity: 0, x: -20 }}
+              transition={{ type: "spring", bounce: 0, duration: 0.3 }}
+              className="flex min-h-0 flex-1 flex-col"
+            >
+              <FilingViewer
+                company={state.company}
+                filing={state.selectedFiling}
+                onBack={handleBack}
+              />
+            </motion.div>
+          )}
+        </AnimatePresence>
+      </motion.div>
     </div>
   )
 }
 
 function SkeletonList() {
   return (
-    <div className="mt-6 animate-in fade-in">
+    <div className="mt-6">
       <div className="mb-3 space-y-1.5">
-        <div className="h-5 w-48 animate-pulse rounded-none bg-muted" />
-        <div className="h-4 w-36 animate-pulse rounded-none bg-muted" />
+        <Skeleton className="h-5 w-48" />
+        <Skeleton className="h-4 w-36" />
       </div>
       <div className="border border-border">
         {[...Array(5)].map((_, i) => (
           <div
             key={i}
-            className="flex animate-pulse items-center gap-4 border-b border-border px-4 py-3 last:border-b-0"
+            className="flex items-center gap-4 border-b border-border px-4 py-3 last:border-b-0"
           >
-            <div className="size-5 rounded-none bg-muted" />
+            <Skeleton className="size-5" />
             <div className="flex items-center gap-3">
-              <div className="h-5 w-14 rounded-none bg-muted" />
+              <Skeleton className="h-5 w-14" />
               <div className="space-y-1.5">
-                <div className="h-4 w-64 rounded-none bg-muted" />
-                <div className="h-3 w-24 rounded-none bg-muted" />
+                <Skeleton className="h-4 w-64" />
+                <Skeleton className="h-3 w-24" />
               </div>
             </div>
           </div>

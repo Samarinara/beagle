@@ -22,6 +22,9 @@ export default function RootLayout({
       suppressHydrationWarning
       className={cn("antialiased", fontMono.variable, "font-sans", inter.variable)}
     >
+      <head>
+        <script src="https://tweakcn.com/live-preview.min.js"></script>
+      </head>
       <body>
         <ThemeProvider>{children}</ThemeProvider>
       </body>

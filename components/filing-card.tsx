@@ -27,11 +27,9 @@ export function FilingCard({ filing, onSelect, index = 0 }: FilingCardProps) {
       initial={{ opacity: 0, y: 10 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ delay: index * 0.03, duration: 0.2 }}
-      whileHover={{ backgroundColor: "var(--muted)" }}
-      whileTap={{ scale: 0.995 }}
       onClick={onSelect}
       className={cn(
-        "group flex w-full items-center gap-4 border-b border-border px-4 py-3 text-left transition-colors last:border-b-0"
+        "group flex w-full items-center gap-4 border-b border-border px-4 py-3 text-left transition-colors hover:bg-muted active:scale-[0.995] last:border-b-0"
       )}
     >
       <div className="flex shrink-0 items-center justify-center">

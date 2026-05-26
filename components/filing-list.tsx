@@ -66,12 +66,14 @@ export function FilingList({
         )}
       </div>
 
-      <AnimatePresence>
+      <AnimatePresence mode="wait">
         {hasMore && (
           <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
+            key="load-more"
+            initial={{ opacity: 0, y: 4 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -4 }}
+            transition={{ duration: 0.2 }}
             className="mt-6 flex justify-center"
           >
             <Button
@@ -84,17 +86,20 @@ export function FilingList({
             </Button>
           </motion.div>
         )}
-      </AnimatePresence>
 
-      {!hasMore && totalFilings > 10 && (
-        <motion.p
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          className="mt-6 text-center text-xs text-muted-foreground"
-        >
-          All {totalFilings} filings loaded
-        </motion.p>
-      )}
+        {!hasMore && totalFilings > 10 && (
+          <motion.p
+            key="all-loaded"
+            initial={{ opacity: 0, y: 4 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -4 }}
+            transition={{ duration: 0.2 }}
+            className="mt-6 text-center text-xs text-muted-foreground"
+          >
+            All {totalFilings} filings loaded
+          </motion.p>
+        )}
+      </AnimatePresence>
     </div>
   )
 }
